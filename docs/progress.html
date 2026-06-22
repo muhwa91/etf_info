@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>진행 상황 — etf_info</title>
+  <style>
+    :root { color-scheme: light dark; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
+      max-width: 960px; margin: 0 auto; padding: 32px 20px;
+      line-height: 1.6; color: #1f2328; background: #fff;
+    }
+    h1 { margin: 0 0 4px; font-size: 1.7rem; }
+    .sub { color: #656d76; margin: 0 0 24px; font-size: 0.9rem; }
+    .entry {
+      border: 1px solid #d0d7de; border-radius: 10px;
+      padding: 16px 20px; margin: 0 0 16px; background: #f6f8fa;
+    }
+    .entry h2 { margin: 0 0 6px; font-size: 1.1rem; }
+    .meta { font-size: 0.8rem; color: #656d76; margin: 0 0 12px; }
+    .badge {
+      display: inline-block; font-size: 0.72rem; font-weight: 600;
+      padding: 2px 9px; border-radius: 999px; vertical-align: middle;
+    }
+    .ok   { background: #1a7f37; color: #fff; }
+    .wip  { background: #9a6700; color: #fff; }
+    .fail { background: #cf222e; color: #fff; }
+    .req, .done {
+      margin: 6px 0 0; padding: 9px 13px; background: #fff;
+      border-radius: 7px; font-size: 0.95rem;
+    }
+    .req  { border-left: 3px solid #6e7781; }
+    .done { border-left: 3px solid #1a7f37; }
+    .req .label  { font-weight: 700; color: #6e7781; }
+    .done .label { font-weight: 700; color: #1a7f37; }
+    footer { margin-top: 32px; font-size: 0.8rem; color: #8b949e; text-align: center; }
+  </style>
+</head>
+<body>
+  <h1>📋 진행 상황 — <em>etf_info (TIGER 미국우주테크 ETF 시가 예측)</em></h1>
+  <p class="sub">개발자·비개발자 모두가 보는 진행 기록입니다. 각 항목은 <b>요청 → 처리</b>로 정리되며, 위쪽이 최신입니다. (상세 기술 내용은 git 커밋에 기록)</p>
+
+  <!--
+    새 항목 형식:
+    <div class="entry">
+      <h2>제목 <span class="badge ok">완료</span></h2>
+      <p class="meta">YYYY-MM-DD · 담당: ...</p>
+      <p class="req"><span class="label">📌 요청</span> — 쉬운 말로</p>
+      <p class="done"><span class="label">✅ 처리</span> — 쉬운 말로, 결과 중심</p>
+    </div>
+  -->
+  <!-- ENTRIES:START -->
+
+  <div class="entry">
+    <h2>앱스크립트(알람)를 로컬에서 고쳐 바로 올릴 수 있게 연결 <span class="badge ok">완료</span></h2>
+    <p class="meta">2026-06-22 · 담당: 메인</p>
+    <p class="req"><span class="label">📌 요청</span> — 등록된 앱스크립트(알람) 코드를 프로젝트 폴더 안에 두고, 거기서 수정하면 앱스크립트로 푸시(전송)되게 하고 싶다.</p>
+    <p class="done"><span class="label">✅ 처리</span> — Google 공식 도구 <b>clasp</b>를 <code>apps_script/</code> 폴더 안에 설치하고, 푸시에 필요한 설정(매니페스트·연결 정보·푸시 대상 화이트리스트)을 만들었습니다. 이제 <code>apps_script/dispatch.gs</code>를 로컬에서 고친 뒤 <b>한 줄 명령(<code>npm run push</code>)으로 앱스크립트에 바로 반영</b>할 수 있습니다. 푸시는 코드만 바꾸고 등록된 트리거·토큰 설정은 그대로 둡니다. 실제 연결을 켜려면 사용자가 1회 <b>로그인(<code>npm run login</code>)</b>과 <b>스크립트 ID 입력</b>만 하면 됩니다(README에 절차 정리).</p>
+  </div>
+
+  <div class="entry">
+    <h2>휴장 안내 메시지 + 시장 상태 표시(국내·미국) <span class="badge ok">완료</span></h2>
+    <p class="meta">2026-06-22 · 담당: 메인</p>
+    <p class="req"><span class="label">📌 요청</span> — 휴장일에도 메시지를 보내자. 국내장·미국장 휴장 정보를 아이콘 넣어 상황별로.</p>
+    <p class="done"><span class="label">✅ 처리</span> — 국내장(🇰🇷)·미국장(🇺🇸) 상태를 신호등(🟢 정상 / 🔴 휴장)으로 표시하도록 만들고, 상황별 메시지를 4가지로 정리했습니다: ① <b>정상</b> → 예측 메시지 상단에 두 시장 상태 한 줄 추가, ② <b>국내장 휴장</b> → "오늘은 국내장 휴장일입니다", ③ <b>미국장 전일 휴장</b>(반영할 변동 없음) → "오늘은 예측을 쉽니다", ④ <b>둘 다 휴장</b> → "오늘은 휴장일입니다". 국내 휴장은 한국투자증권 휴장일 조회로, 미국 휴장은 미국 거래일 진행 여부로 자동 판별합니다. 4가지 상황 모두 실제 메시지 출력까지 확인했습니다.</p>
+  </div>
+
+  <div class="entry">
+    <h2>앱스크립트 알람 연결 완료 + 첫 실패 원인 해결 <span class="badge ok">완료</span></h2>
+    <p class="meta">2026-06-22 · 담당: 메인</p>
+    <p class="req"><span class="label">📌 요청</span> — 앱스크립트(알람)를 GitHub와 연결하고 실제로 동작하는지 테스트.</p>
+    <p class="done"><span class="label">✅ 처리</span> — 구글 앱스크립트가 GitHub를 깨우는 연결을 완성했습니다(호출 즉시 실행 시작 — 예약과 달리 지연 0). 첫 테스트는 한 번 실패했는데, 코드 문제가 아니라 <b>해외 서버에서 한국투자증권 접속이 일시적으로 끊긴 것</b>이었습니다. 그래서 <b>접속 실패 시 자동 재시도(최대 4회)</b>를 넣었고, 다시 테스트하니 끝까지 성공해 <b>텔레그램 메시지까지 정상 도착</b>했습니다. 이제 평일 아침 8:30 자동 발송 준비가 끝났습니다.</p>
+  </div>
+
+  <div class="entry">
+    <h2>한국 휴장일엔 예측 대신 "휴장 안내" 발송 <span class="badge ok">완료</span></h2>
+    <p class="meta">2026-06-22 · 담당: 메인</p>
+    <p class="req"><span class="label">📌 요청</span> — 한국 휴장일에도 예측은 막고, 대신 "오늘 휴장입니다" 안내 메시지를 보내자.</p>
+    <p class="done"><span class="label">✅ 처리</span> — 한국투자증권의 <b>국내 휴장일 조회</b>로 그날 한국 증시가 열리는지 정확히 확인하도록 했습니다(공휴일을 매년 직접 입력할 필요 없음). 휴장일(주말·공휴일)이면 시가 예측 대신 <b>"오늘은 한국 증시 휴장일입니다 — 다음 개장일 아침에 다시 보내드릴게요"</b> 안내를 하루 1회 보내고 끝냅니다. 실제로 어린이날(5/5)·토요일 등을 휴장으로 정확히 판별하는 것까지 확인했습니다.</p>
+  </div>
+
+  <div class="entry">
+    <h2>미국장 쉰 다음날엔 메시지 안 보내기 <span class="badge ok">완료</span></h2>
+    <p class="meta">2026-06-22 · 담당: 메인</p>
+    <p class="req"><span class="label">📌 요청</span> — 미국장이 열린 다음날은 ETF 변동이 있으니 보내고, 미국장이 안 열린 다음날은 변동이 없으니 안 보내도 되지 않나?</p>
+    <p class="done"><span class="label">✅ 처리</span> — 맞습니다. 이 ETF는 미국 자산을 따라가니, 밤사이 미국장이 안 열렸으면 새로 반영할 변동이 없습니다. 그래서 <b>"직전에 보낼 때의 미국 최근 거래일"과 오늘이 같으면(=그 사이 미국 새 장이 없었으면) 전송을 건너뛰도록</b> 했습니다. 단순히 요일로 판단하지 않고 실제 미국 거래일 진행 여부로 보기 때문에, 월요일·연휴 뒤처럼 새 미국장이 있었던 날은 정상 발송됩니다. (실제로 오늘 기준 미국 최근 거래일이 6/18인데, 6/19가 미국 준틴스 휴장이라 그 이후 새 장이 없음을 정확히 잡아냄)</p>
+  </div>
+
+  <div class="entry">
+    <h2>8:30 정각 도착 — 구글 앱스크립트 "알람" 도입 <span class="badge ok">완료</span></h2>
+    <p class="meta">2026-06-22 · 담당: 메인</p>
+    <p class="req"><span class="label">📌 요청</span> — 늦게라도 오는 게 아니라, 그냥 8시 30분 정각에 메시지가 오게 해줘. 앱스크립트로 하면 어떨까?</p>
+    <p class="done"><span class="label">✅ 처리</span> — 지연의 진짜 원인은 "클라우드(GitHub) 예약이 공용 줄서기라 제때 안 깨어나는 것"이었습니다(시간을 어떻게 적어도 못 고침). 그래서 <b>구글 앱스크립트(GAS)를 "알람"으로</b> 두어, 평일 아침 8:20~8:32 사이 GitHub를 <b>직접 호출</b>해 깨우게 했습니다. 이 "직접 호출"은 줄서기 지연이 거의 없어 1분 안에 시작되고, 깨어난 프로그램이 <b>8:30:00까지 기다렸다가 그 순간</b> 예상 시가를 보냅니다 → <b>매일 8:30 정각</b> 도착. 검증된 예측 계산(파이썬)은 그대로 두고 GAS는 알람 역할만 합니다. GitHub 예약은 "GAS가 실패한 날만" 동작하는 가벼운 백업(8:45·9:05)으로 축소. 설치법은 <code>apps_script/README.md</code>에 정리했습니다(구글 계정에서 1회 세팅 필요).</p>
+  </div>
+
+  <div class="entry">
+    <h2>아침 메시지가 안 오던 문제 해결 (예약 시각 지연) <span class="badge ok">완료</span></h2>
+    <p class="meta">2026-06-22 · 담당: 메인</p>
+    <p class="req"><span class="label">📌 요청</span> — 깃액션까지 등록했는데 오늘 아침에 메시지가 오지 않았어.</p>
+    <p class="done"><span class="label">✅ 처리</span> — 확인해 보니 프로그램·비밀키·예약 설정은 모두 정상이었고, 메시지도 전송엔 성공했습니다. 진짜 원인은 <b>"시각"</b>이었습니다: 클라우드(GitHub) 예약 실행이 부하 때문에 아침 8시 반이 아니라 <b>11시에야 실행</b>돼(약 2시간 반 지연), 동시호가(8:30~9:00) "예상 체결가"를 받는 시간대를 놓쳤습니다. 클라우드 예약은 원래 수 분~수 시간씩 늦을 수 있어 30분짜리 창을 한 번에 맞추기 어렵습니다. 그래서 <b>아침 8:00~9:20 사이 10분 간격으로 여러 번 시도</b>하도록 바꾸고, 프로그램이 <b>"동시호가 예상가가 실제로 잡힌 순간 딱 한 번만"</b> 보내도록(같은 날 중복 발송 방지) 만들었습니다. 이제 클라우드가 좀 늦게 깨어나도 그중 한 번은 제때 창 안에 들어가 정확한 예상 시가를 받아 보냅니다. <b>또한 8:30 정각에 오도록</b>, 8:30보다 일찍 깨어난 실행은 <b>8:30:00까지 기다렸다가 그 순간</b> 보내게 했습니다(평소엔 8:30 정각 도착, 클라우드가 크게 늦은 날만 그만큼 늦게/폴백으로 옴).</p>
+  </div>
+
+  <div class="entry">
+    <h2>아침 텔레그램 메시지 깔끔하게 정리 <span class="badge ok">완료</span></h2>
+    <p class="meta">2026-06-19 · 담당: 메인</p>
+    <p class="req"><span class="label">📌 요청</span> — 텔레그램 메시지를 [날짜]·제목·전일대비·예상 시가·범위·의견·미국 종목 순으로 깔끔하게 보내줘.</p>
+    <p class="done"><span class="label">✅ 처리</span> — 복잡한 숫자 줄(공정가치·괴리율)과 군더더기 꼬리표를 빼고 핵심만 남겨 정리했습니다. 좋고 나쁨 신호는 "의견" 한 줄로 유지.</p>
+  </div>
+
+  <div class="entry">
+    <h2>매일 아침 자동 실행 (GitHub Actions) <span class="badge ok">완료</span></h2>
+    <p class="meta">2026-06-19 · 담당: 메인</p>
+    <p class="req"><span class="label">📌 요청</span> — 매일 아침 8시 반에 예상 시가를 텔레그램으로 자동으로 보내줘. 깃액션으로.</p>
+    <p class="done"><span class="label">✅ 처리</span> — PC를 켜두지 않아도 클라우드에서 평일 아침 8시 반(한국시간)에 저절로 실행되도록 등록했습니다. 비밀키는 안전하게 보관(GitHub Secrets). 월요일 아침부터 자동으로 메시지가 옵니다.</p>
+  </div>
+
+  <div class="entry">
+    <h2>시가 예측을 "시장 예상가"로 (가장 정확한 방법) <span class="badge ok">완료</span></h2>
+    <p class="meta">2026-06-19 · 담당: 메인+직원</p>
+    <p class="req"><span class="label">📌 요청</span> — 시가(개장가) 예측을 실제와 최대한 가깝게.</p>
+    <p class="done"><span class="label">✅ 처리</span> — 개장 직전(아침 8:30~9:00) 시장이 직접 만들어내는 "예상 체결가"를 받아 예상 시가로 쓰도록 했습니다. 계산식 추정보다 훨씬 정확합니다(실제 정확도는 월요일 아침 첫 검증). ※ 개장가의 할인폭은 그날 매수·매도 분위기라 계산만으로는 한계가 있어, 시장의 실제 호가를 쓰는 게 최선입니다.</p>
+  </div>
+
+  <div class="entry">
+    <h2>환율 자동 반영 + 정확도 점검 <span class="badge ok">완료</span></h2>
+    <p class="meta">2026-06-19 · 담당: 메인+직원</p>
+    <p class="req"><span class="label">📌 요청</span> — 환율 정보도 KIS에서 받아올 수 있지 않나? (오늘 시가와 비교해 정확도 확인)</p>
+    <p class="done"><span class="label">✅ 처리</span> — KIS가 원/달러 환율을 준다는 걸 찾아 자동으로 반영했습니다. 적정가(NAV) 예측은 거의 정확(오차 0%대)하고, 시가가 빗나가는 건 환율이 아니라 "ETF 할인폭(매수·매도 분위기)" 때문임을 확인했습니다.</p>
+  </div>
+
+  <div class="entry">
+    <h2>한국투자증권(KIS) 데이터만 쓰도록 전환 <span class="badge ok">완료</span></h2>
+    <p class="meta">2026-06-19 · 담당: 직원(백엔드)</p>
+    <p class="req"><span class="label">📌 요청</span> — 이 프로그램도 KIS만 쓰고 다른 곳(야후·네이버)은 다 빼줘. 예측 정확도도 올리고 싶어.</p>
+    <p class="done"><span class="label">✅ 처리</span> — 야후·네이버 연동을 전부 없애고 한국투자증권 공식 데이터만 쓰도록 바꿨습니다. 공식 NAV(적정가)를 직접 쓰게 돼 정확도도 좋아졌습니다.</p>
+  </div>
+
+  <div class="entry">
+    <h2>AI 팀 작업공간으로 이관(온보딩) <span class="badge ok">완료</span></h2>
+    <p class="meta">2026-06-19 · 담당: 메인</p>
+    <p class="req"><span class="label">📌 요청</span> — 이 프로젝트(주식 ETF 시가 예측 프로그램)를 AI 팀과 함께 개발하게 가져와줘.</p>
+    <p class="done"><span class="label">✅ 처리</span> — 프로젝트를 작업공간으로 옮기고 팀 설정·안내서를 붙였습니다. 파이썬으로 만든 프로그램임을 확인했고, 비밀 설정(키)은 공개되지 않게 처리했습니다.</p>
+  </div>
+
+  <!-- ENTRIES:END -->
+
+  <footer>etf_info · 진행 기록 (요청 → 처리)</footer>
+</body>
+</html>

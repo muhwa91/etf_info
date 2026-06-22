@@ -1,0 +1,6 @@
+# clasp 가 푸시할 파일만 화이트리스트(나머지 전부 무시).
+# node_modules 의 수많은 .js 가 푸시되는 사고 방지가 핵심.
+**/**
+
+!appsscript.json
+!etf_info.js

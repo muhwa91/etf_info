@@ -1,0 +1,22 @@
+# 내부 AI/에디터 설정
+.claude/
+.vscode/
+.idea/
+
+# 비밀정보 / 설정파일
+**/.env
+kis_config.json
+telegram_config.json
+kakao_token.json
+token_cache.json
+*.key
+
+# 의존성 / 빌드
+node_modules/
+vendor/
+dist/
+/backend/storage/*.key
+
+# OS
+.DS_Store
+Thumbs.db
