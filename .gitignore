@@ -1,22 +1,19 @@
-# 내부 AI/에디터 설정
-.claude/
-.vscode/
-.idea/
-
-# 비밀정보 / 설정파일
-**/.env
-kis_config.json
-telegram_config.json
-kakao_token.json
 token_cache.json
-*.key
-
-# 의존성 / 빌드
-node_modules/
-vendor/
-dist/
-/backend/storage/*.key
-
-# OS
+telegram_config.json
+kis_config.json
+fx_cache.json
+dprt_cache.json
+sent_marker.json
+__pycache__/
+*.pyc
 .DS_Store
-Thumbs.db
+
+# 팀 hook 자동 로그 (질문·세션) — 커밋 제외
+logs/*.jsonl
+logs/sessions/
+logs/sessions.log
+
+# clasp (Apps Script CLI)
+node_modules/
+.clasprc.json
+apps_script/.clasprc.json
