@@ -741,6 +741,59 @@ def is_korea_market_open(now_kst=None):
     minutes = now_kst.hour * 60 + now_kst.minute
     return 9 * 60 <= minutes <= 15 * 60 + 30
 
+def should_poll_auction(
+    auction_only: bool,
+    no_telegram: bool,
+    in_preopen_auction: bool,
+    antc,
+) -> bool:
+    """동시호가 antc 폴링 진입 여부(순수 함수). 부수효과 없음.
+
+    조건: auction_only and not no_telegram and in_preopen_auction
+          and (antc is None or antc.get('antc_cnpr', 0) <= 0)
+
+    Args:
+        auction_only: --auction-only 플래그.
+        no_telegram: --no-telegram 플래그.
+        in_preopen_auction: 현재 시각이 평일 08:30~09:00 구간인지 여부.
+        antc: get_etf_expected_open() 반환값(None 또는 dict).
+    """
+    return (
+        auction_only
+        and not no_telegram
+        and in_preopen_auction
+        and (antc is None or antc.get("antc_cnpr", 0) <= 0)
+    )
+
+
+def decide_auction_send(
+    expected_open_valid: bool,
+    auction_primary_attempted: bool,
+    after_auction_window: bool,
+) -> str:
+    """--auction-only 전송 게이트 판정(순수 함수). 부수효과 없음.
+
+    반환: 'send_real' | 'send_fallback_primary' | 'send_fallback_late' | 'skip'
+    우선순위:
+        ① 유효 antc → 'send_real'
+        ② 정시 주 실행(폴링 수행)인데 미확보 → 'send_fallback_primary'
+        ③ 창 종료(09:00 이후) 뒤늦은 실행 → 'send_fallback_late'
+        ④ 그 외(08:30 전 조기 실행) → 'skip'
+
+    Args:
+        expected_open_valid: antc_cnpr 가 유효한지 여부(expected_open is not None).
+        auction_primary_attempted: 08:30~09:00 창 안에서 폴링까지 수행한 정시 주 실행 여부.
+        after_auction_window: 평일 09:00 이후 여부.
+    """
+    if expected_open_valid:
+        return "send_real"
+    if auction_primary_attempted:
+        return "send_fallback_primary"
+    if after_auction_window:
+        return "send_fallback_late"
+    return "skip"
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="TIGER 미국우주테크 ETF 시뮬레이터 (KIS API 단독)")
@@ -871,13 +924,46 @@ def main():
     # 1-c. KIS 예상체결가(antc_cnpr) 수집 — 장전 동시호가(8:30~09:00)의 '시장 예상 시가'.
     #   antc_cnpr 는 '동시호가 시간에만' 예상 시가 의미를 가진다(그 외엔 현재가로 나옴).
     #   → KST 평일 08:30~09:00(장전 동시호가)일 때만 유효로 본다. 무효면 폴백.
+    #   [폴링 보강] auction_only + 동시호가 창 안 + antc가 아직 0/빈값이면 최대 08:38 KST 까지
+    #   15초 간격으로 재조회한다. GAS 단일 디스패치 1회 실행이 08:30:00 정각에 창에 진입했을 때
+    #   KIS 가 아직 예상체결가를 0으로 내려줄 수 있으므로 창 안에서 재시도해 유효값을 확보한다.
     print("\n🕗 KIS 예상체결가(antc_cnpr·장전 동시호가) 수집 중...")
     time.sleep(0.2)
     expected_open = None        # 유효한 예상 시가(원). 무효/조회실패면 None
-    now_kst = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
+    auction_primary_attempted = False  # 동시호가 창 안에서 폴링까지 수행한 '정시 주 실행' 플래그
+    kst_tz_antc = datetime.timezone(datetime.timedelta(hours=9))
+    now_kst = datetime.datetime.now(kst_tz_antc)
     kst_hm = now_kst.hour * 100 + now_kst.minute
     in_preopen_auction = (now_kst.weekday() < 5) and (830 <= kst_hm < 900)  # 평일 08:30~09:00
     antc = get_etf_expected_open(token)
+
+    # 폴링 진입 조건: auction_only + --no-telegram 없음 + 창 안 + antc 미확보 상태
+    _need_poll = should_poll_auction(auction_only, no_telegram, in_preopen_auction, antc)
+    if _need_poll:
+        auction_primary_attempted = True
+        # 08:38:00 KST 를 폴링 데드라인으로 삼는다 (08:40 마감 요건 + 마지막 조회 여유 2분).
+        _poll_deadline = now_kst.replace(hour=8, minute=38, second=0, microsecond=0)
+        _poll_try = 1
+        print(f"  ⏳ antc_cnpr 아직 0/미생성 — 동시호가 폴링 시작 (데드라인 08:38 KST, 15초 간격)")
+        while True:
+            _now = datetime.datetime.now(kst_tz_antc)
+            if _now >= _poll_deadline:
+                print(f"  ⏳ 폴링 데드라인(08:38) 도달 — antc_cnpr 끝내 미확보, 폴백으로 진행.")
+                break
+            time.sleep(15)
+            _poll_try += 1
+            _now = datetime.datetime.now(kst_tz_antc)
+            _hms = _now.strftime("%H:%M:%S")
+            print(f"  ⏳ 예상체결가 대기 폴링... ({_hms}, 시도 {_poll_try})")
+            antc = get_etf_expected_open(token)
+            if antc is not None and antc.get("antc_cnpr", 0) > 0:
+                print(f"  ✅ antc_cnpr 확보 (시도 {_poll_try}, {_hms})")
+                break
+        # 폴링 종료 후 현재 시각·창 판정 갱신 (흐른 시간 반영)
+        now_kst = datetime.datetime.now(kst_tz_antc)
+        kst_hm = now_kst.hour * 100 + now_kst.minute
+        in_preopen_auction = (now_kst.weekday() < 5) and (830 <= kst_hm < 900)
+
     if antc is not None:
         antc_cnpr = antc["antc_cnpr"]
         antc_vol = antc["antc_vol"]
@@ -1211,24 +1297,36 @@ def main():
         )
         
         print(f"\n[텔레그램 전송 메시지 내용]\n{telegram_msg}\n")
-        # --auction-only(GitHub 다회 예약) 전송 게이트. 하루 1회만, 가능한 한 '진짜 예상체결가'로.
+        # --auction-only 전송 게이트. 하루 1회, 가능한 한 '진짜 예상체결가'로.
         #   ① 동시호가 창(08:30~09:00) + 유효 antc_cnpr → 시장 예상 시가로 전송(최우선).
-        #   ② 창 이전(08:30 전) → 미전송, 창 안에 드는 다음 예약 실행을 기다린다(폴백으로 하루치 소진 방지).
-        #   ③ 창 종료(09:00 지남)인데 아직 미발송 → 모든 창 시도가 지연/실패한 경우이므로,
-        #      메시지 누락을 막기 위해 폴백 추정으로 '최후 1회' 전송한다.
+        #   ② 창 안에서 폴링까지 수행한 '정시 주 실행'(auction_primary_attempted=True)이지만
+        #      08:38 데드라인까지 antc_cnpr 를 못 받은 경우 → 폴백 추정으로 그 자리에서 전송.
+        #      (GAS 단일 디스패치 1회 실행이므로 "다음 예약"을 기다리면 메시지가 오지 않는다.)
+        #   ③ 창 종료(09:00 이후)인데 아직 미발송 → 뒤늦은 cron 백업 실행이 폴백으로 최후 1회 전송.
+        #   ④ 창 이전(08:30 전) — wait_until_send_time() 이 처리하므로 사실상 도달 불가(안전장치만).
         send_hm = now_kst.hour * 100 + now_kst.minute
         after_auction_window = now_kst.weekday() < 5 and send_hm >= 900  # 평일 09:00 이후
         if no_telegram:
             print("  ℹ --no-telegram 옵션 지정으로 인해 텔레그램 전송이 생략되었습니다.")
-        elif auction_only and expected_open_valid:
-            if send_telegram_message(telegram_msg):
-                write_auction_sent_today(today_kst_str, us_date=d1)
-        elif auction_only and after_auction_window:
-            print("  ⏳ 동시호가 창(08:30~09:00) 종료·예상체결가 못 받음 → 폴백 추정으로 최후 1회 전송(메시지 누락 방지).")
-            if send_telegram_message(telegram_msg):
-                write_auction_sent_today(today_kst_str, us_date=d1)
         elif auction_only:
-            print("  ⏳ 동시호가 창(08:30~09:00) 이전·예상체결가 미생성 → 이번 예약 실행 미전송, 다음 예약 대기.")
+            _gate = decide_auction_send(expected_open_valid, auction_primary_attempted, after_auction_window)
+            if _gate == "send_real":
+                # ① 유효 antc_cnpr — 시장 예상 시가로 전송(최우선)
+                if send_telegram_message(telegram_msg):
+                    write_auction_sent_today(today_kst_str, us_date=d1)
+            elif _gate == "send_fallback_primary":
+                # ② 정시 주 실행이 폴링 끝까지 antc_cnpr 못 잡은 경우 → 폴백으로 그 자리에서 전송
+                print("  ⏳ 폴링 후에도 예상체결가 미확보 → 폴백 추정으로 정시 전송(메시지 누락 방지).")
+                if send_telegram_message(telegram_msg):
+                    write_auction_sent_today(today_kst_str, us_date=d1)
+            elif _gate == "send_fallback_late":
+                # ③ 뒤늦은 cron 백업 실행 — 창 닫힌 후 도착한 실행이 최후 1회 전송
+                print("  ⏳ 동시호가 창(08:30~09:00) 종료·예상체결가 못 받음 → 폴백 추정으로 최후 1회 전송(메시지 누락 방지).")
+                if send_telegram_message(telegram_msg):
+                    write_auction_sent_today(today_kst_str, us_date=d1)
+            else:  # 'skip'
+                # ④ 창 이전(08:30 전) 비정상 조기 실행 — wait 가 처리하므로 사실상 도달 불가
+                print("  ⏳ 동시호가 창(08:30~09:00) 이전 — 대기 후 재진행 예정(조기 실행 안전장치).")
         else:
             send_telegram_message(telegram_msg)
     except Exception as e:
