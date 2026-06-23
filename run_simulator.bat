@@ -1,3 +1,3 @@
 @echo off
-cd /d "E:\coding\etf_info"
+cd /d "%~dp0"
 python tiger_etf_simulator.py

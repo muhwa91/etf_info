@@ -24,7 +24,6 @@
 일별 (시가/종가) 분포로 '개장 vs 종가 단기 할인변동'의 예측가능성(=한계)을 보고한다.
 """
 import sys
-import os
 import time
 import datetime
 

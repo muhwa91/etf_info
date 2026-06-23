@@ -214,18 +214,23 @@ def send_telegram_message(message):
         "parse_mode": "HTML"
     }
     
-    try:
-        res = requests.post(url, json=payload, timeout=10)
-        res_data = res.json()
-        if res.status_code == 200 and res_data.get("ok"):
-            print("  ✅ 텔레그램 메시지 전송 성공!")
-            return True
-        else:
-            print(f"  ❌ 텔레그램 메시지 전송 실패: {res.text}")
-            return False
-    except Exception as e:
-        print(f"  ❌ 텔레그램 메시지 전송 중 오류 발생: {e}")
-        return False
+    # 일시적 네트워크/텔레그램 장애에 대비해 최대 3회 재시도(2초·4초 백오프).
+    for attempt in range(1, 4):  # 1, 2, 3
+        try:
+            res = requests.post(url, json=payload, timeout=15)
+            res_data = res.json()
+            if res.status_code == 200 and res_data.get("ok"):
+                print("  ✅ 텔레그램 메시지 전송 성공!")
+                return True
+            else:
+                print(f"  ❌ 텔레그램 메시지 전송 실패(시도 {attempt}/3): {res.text}")
+        except Exception as e:
+            print(f"  ❌ 텔레그램 메시지 전송 중 오류 발생(시도 {attempt}/3): {e}")
+        if attempt < 3:
+            wait = 2 * attempt  # 2초, 4초 백오프
+            print(f"  ⏳ {wait}초 후 재전송 시도")
+            time.sleep(wait)
+    return False
 
 
 def get_token():
@@ -284,7 +289,8 @@ def get_us_price(token, ticker, retry=3):
             res = requests.get(
                 f"{BASE_URL}/uapi/overseas-price/v1/quotations/price",
                 headers=headers,
-                params={"AUTH": "", "EXCD": excd, "SYMB": ticker}
+                params={"AUTH": "", "EXCD": excd, "SYMB": ticker},
+                timeout=15,
             )
             data = res.json()
 
@@ -336,7 +342,8 @@ def get_usdkrw(token, retry=3):
                 res = requests.get(
                     f"{BASE_URL}/uapi/overseas-price/v1/quotations/price-detail",
                     headers=headers,
-                    params={"AUTH": "", "EXCD": excd, "SYMB": ticker}
+                    params={"AUTH": "", "EXCD": excd, "SYMB": ticker},
+                    timeout=15,
                 )
                 data = res.json()
 
@@ -502,7 +509,8 @@ def get_etf_open_nav(token, retry=3):
         res = requests.get(
             f"{BASE_URL}/uapi/etfetn/v1/quotations/nav-comparison-trend",
             headers=headers,
-            params={"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": ETF_CODE}
+            params={"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": ETF_CODE},
+            timeout=15,
         )
         data = res.json()
         if data.get("rt_cd") == "0":
@@ -552,28 +560,6 @@ def get_kr_market_open(token, yyyymmdd):
     return None
 
 
-def get_etf_price(token):
-    headers = {
-        "authorization": f"Bearer {token}",
-        "appkey": APP_KEY,
-        "appsecret": APP_SECRET,
-        "tr_id": "FHKST01010100",
-    }
-    res = requests.get(
-        f"{BASE_URL}/uapi/domestic-stock/v1/quotations/inquire-price",
-        headers=headers,
-        params={"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": ETF_CODE}
-    )
-    data = res.json()
-    if data.get("rt_cd") != "0":
-        print(f"  ⚠ ETF 조회 실패: {data.get('msg1','')}")
-        return None
-    o = data["output"]
-    return {
-        "current": safe_float(o.get("stck_prpr")),
-        "prev":    safe_float(o.get("stck_sdpr"))
-    }
-
 def get_etf_nav(token):
     """KIS ETF 실시간 iNAV·괴리율·전일확정NAV 조회 (tr_id FHPST02400000).
 
@@ -597,7 +583,8 @@ def get_etf_nav(token):
     res = requests.get(
         f"{BASE_URL}/uapi/etfetn/v1/quotations/inquire-price",
         headers=headers,
-        params={"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": ETF_CODE}
+        params={"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": ETF_CODE},
+        timeout=15,
     )
     data = res.json()
     if data.get("rt_cd") != "0":
@@ -629,7 +616,7 @@ def get_etf_expected_open(token, retry=3):
       stck_prpr           : 현재가(동시호가 시간이 아니면 antc_cnpr 가 이 값으로 나옴)
 
     반환: 위 필드를 담은 dict(antc_cnpr/stck_prpr/prev 는 float). 실패/빈값이면 None.
-    (get_etf_price/get_etf_nav 의 헤더·레이트리밋 백오프 패턴을 따른다.)
+    (get_etf_nav 의 헤더·레이트리밋 백오프 패턴을 따른다.)
     """
     headers = {
         "authorization": f"Bearer {token}",
@@ -641,7 +628,8 @@ def get_etf_expected_open(token, retry=3):
         res = requests.get(
             f"{BASE_URL}/uapi/domestic-stock/v1/quotations/inquire-asking-price-exp-ccn",
             headers=headers,
-            params={"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": ETF_CODE}
+            params={"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": ETF_CODE},
+            timeout=15,
         )
         data = res.json()
         if data.get("rt_cd") == "0":
@@ -691,7 +679,8 @@ def get_us_daily(token, ticker, retry=3):
                 f"{BASE_URL}/uapi/overseas-price/v1/quotations/dailyprice",
                 headers=headers,
                 params={"AUTH": "", "EXCD": excd, "SYMB": ticker,
-                        "GUBN": "0", "BYMD": "", "MODP": "1"}
+                        "GUBN": "0", "BYMD": "", "MODP": "1"},
+                timeout=15,
             )
             data = res.json()
 
@@ -826,7 +815,8 @@ def main():
     kst_tz = datetime.timezone(datetime.timedelta(hours=9))
     now_kst = datetime.datetime.now(kst_tz)
     today_kst_str = now_kst.strftime("%Y-%m-%d")
-    kr_open = is_korea_market_open(now_kst)
+    # (a) 지금이 한국 정규장(09:00~15:30) 중인가 — mode(live/after) 분기용.
+    kr_regular_open = is_korea_market_open(now_kst)
 
     # 동시호가 1회-전송 모드: 오늘 이미 보냈으면 불필요한 KIS API 호출 없이 즉시 종료.
     if auction_only and read_auction_sent_date() == today_kst_str:
@@ -843,8 +833,10 @@ def main():
         # 대기 후 현재시각 갱신(이후 동시호가 창 판정이 대기 후 시각을 쓰도록).
         now_kst = datetime.datetime.now(kst_tz)
         today_kst_str = now_kst.strftime("%Y-%m-%d")
+        # 대기 동안 정규장 진입 여부가 바뀔 수 있으므로 mode 판정 직전 시각 기준으로 재계산.
+        kr_regular_open = is_korea_market_open(now_kst)
     if args.mode == "auto":
-        mode = "live" if kr_open else "after"
+        mode = "live" if kr_regular_open else "after"
     else:
         mode = args.mode
 
@@ -863,15 +855,16 @@ def main():
     # 시장 상태 판정(auction-only): 국내장 금일 개장여부(KIS 휴장조회) + 미국장 전일 새 세션 여부.
     #   휴장(국내) 또는 변동없음(미국 새 세션 X)이면 → 상황별 '안내 메시지'를 하루 1회 보내고 종료.
     #   ETF 는 미국 자산 추종이라, 직전 전송 미국거래일(last_us)과 오늘 d1 이 같으면 미국 새 세션 없음.
-    kr_open = us_new_session = True
+    # (b) 오늘이 한국 증시 개장일인가 — 휴장 안내용(정규장 진행 여부와 무관).
+    kr_trading_day = us_new_session = True
     if auction_only:
-        kr_open = get_kr_market_open(token, today_kst_str.replace("-", "")) is not False  # None(조회실패)=개장 간주
+        kr_trading_day = get_kr_market_open(token, today_kst_str.replace("-", "")) is not False  # None(조회실패)=개장 간주
         last_us = read_last_us_date()
         us_new_session = (last_us is None) or (d1 != last_us)
-        if (not kr_open) or (not us_new_session):
+        if (not kr_trading_day) or (not us_new_session):
             date_header = f"{now_kst.year}년 {now_kst.month}월 {now_kst.day}일"
-            info_msg = build_market_info_message(date_header, kr_open, us_new_session)
-            label = "국내장 휴장" if not kr_open else "미국장 전일 휴장(반영 변동 없음)"
+            info_msg = build_market_info_message(date_header, kr_trading_day, us_new_session)
+            label = "국내장 휴장" if not kr_trading_day else "미국장 전일 휴장(반영 변동 없음)"
             print(f"  🛑 {label} 감지 → 안내 메시지 발송 후 종료.")
             print(f"\n[텔레그램 전송 메시지 내용]\n{info_msg}\n")
             if no_telegram:
@@ -1152,7 +1145,7 @@ def main():
     if actual_nav is not None:
         print(f"  실제 ETF NAV       : {actual_nav:>8,.0f}원")
         nav_err = actual_nav - predicted_nav
-        nav_err_pct = nav_err / predicted_nav * 100
+        nav_err_pct = (nav_err / predicted_nav * 100) if predicted_nav else 0.0
         print(f"  오차               : {nav_err:>+8,.0f}원  ({nav_err_pct:+.2f}%)")
     else:
         print(f"  실제 ETF NAV       : 미공시 (장후 예측 또는 업데이트 지연)")
@@ -1165,7 +1158,7 @@ def main():
     if actual_etf is not None:
         print(f"  실제 ETF 현재가    : {actual_etf:>8,.0f}원")
         etf_err = actual_etf - predicted_etf
-        etf_err_pct = etf_err / predicted_etf * 100
+        etf_err_pct = (etf_err / predicted_etf * 100) if predicted_etf else 0.0
         print(f"  오차               : {etf_err:>+8,.0f}원  ({etf_err_pct:+.2f}%)")
     else:
         print(f"  실제 ETF 현재가    : 미공시 (장후 예측 또는 업데이트 지연)")
@@ -1268,14 +1261,11 @@ def main():
         # 오늘 날짜 및 시간 계산 (KST 기준)
         kst_tz = datetime.timezone(datetime.timedelta(hours=9))
         now_kst = datetime.datetime.now(kst_tz)
-        today_str = now_kst.strftime("%Y-%m-%d %H:%M")
         date_header = f"{now_kst.year}년 {now_kst.month}월 {now_kst.day}일"
-        
-        # 추가 지표 및 이모지 연산
-        fx_dir = "🔺" if fx_change > 0 else "🔻" if fx_change < 0 else "▫️"
 
+        # 추가 지표 및 이모지 연산
         price_diff = predicted_open - base_etf
-        price_diff_pct = (price_diff / base_etf) * 100
+        price_diff_pct = (price_diff / base_etf * 100) if base_etf else 0.0
         price_diff_dir = "🔺" if price_diff > 0 else "🔻" if price_diff < 0 else "▫️"
         price_diff_sign = "+" if price_diff > 0 else ""
 
@@ -1308,6 +1298,10 @@ def main():
         after_auction_window = now_kst.weekday() < 5 and send_hm >= 900  # 평일 09:00 이후
         if no_telegram:
             print("  ℹ --no-telegram 옵션 지정으로 인해 텔레그램 전송이 생략되었습니다.")
+        elif auction_only and read_auction_sent_date() == today_kst_str:
+            # 전송 직전 마커 재확인(중복 방지 이중화). main() 초기 확인 이후 KIS 호출·대기 동안
+            # 다른 실행이 먼저 보내 마커를 갱신했을 수 있으므로, 실제 전송 직전 한 번 더 막는다.
+            print(f"  ℹ 전송 직전 재확인 — 오늘({today_kst_str}) 동시호가 메시지 이미 전송됨 → 전송 생략.")
         elif auction_only:
             _gate = decide_auction_send(expected_open_valid, auction_primary_attempted, after_auction_window)
             if _gate == "send_real":
