@@ -169,9 +169,19 @@ def build_market_info_message(date_header, kr_open, us_new_session):
 #     ETF 의 NAV 대비 할인은 장중 확대되어 시가 할인이 종가 할인보다 완만한 구조적 특성.
 #   OPEN_DPRT_MIN_SAMPLES : 캐시의 측정 개장할인 표본이 이 수 이상이면 캐시 평균을 우선 사용.
 #   OPEN_DPRT_RECENT_DAYS : 캐시 평균에 쓸 최근 영업일 수.
+#   OPEN_DPRT_CAP : 전일 종가괴리 이상치 상한(%) — 급변기 과대할인 방지, 3일 실측 백테스트 기반
+#     (과도기 안전장치, 표본 누적 후 재튜닝). cold-start 경로에만 적용.
+#   OPEN_BAND_* : 폴백(antc 없음) 개장 시가 정밀 범위 밴드.
+#     OPEN_BAND_VOL_DPRT : 변동성 임계 — |전일종가괴리(kis_dprt)| 가 이보다 크면 큰 이상치 국면.
+#     OPEN_BAND_VOL_RATIO: 큰 이상치 밴드(예측NAV 비례, ~±100원). OPEN_BAND_FB_RATIO: 일반 폴백(~±60원).
+#     (antc 유효 경로는 ±25원 고정 유지. 3일 실측 백테스트 기반 — 폴백 범위 적중 0/3→3/3.)
 OPEN_DPRT_RATIO = 0.66
+OPEN_DPRT_CAP = 3.0
 OPEN_DPRT_MIN_SAMPLES = 3
 OPEN_DPRT_RECENT_DAYS = 5
+OPEN_BAND_VOL_DPRT = 5.0
+OPEN_BAND_VOL_RATIO = 0.010
+OPEN_BAND_FB_RATIO = 0.006
 
 def safe_float(val, default=0.0):
     try:
@@ -446,11 +456,13 @@ def estimate_open_discount(kis_dprt, today_open_dprt=None):
          - 장후(after): 캐시의 최근 종가 괴리율(없으면 kis_dprt) 사용.
 
     today_open_dprt 가 주어지면(=장중 실측 개장괴리) 그 자체를 최우선으로 반환한다.
-    반환: (추정개장할인%, 근거설명문자열)
+    반환: (추정개장할인%, 근거설명문자열, 변동성신호)
+      변동성신호 = cold-start 에서 쓴 '전일 종가괴리'(클리핑 전 원본). 폴백 범위밴드의
+      변동성 판단(클리핑과 동일 기준)에 쓴다. 당일 실측·캐시 평균 경로는 None(견고한 경로라 좁은 밴드면 충분).
     """
     # 장중에 오늘 개장 괴리율을 실측했다면 그것이 정답에 가장 가깝다.
     if today_open_dprt is not None and today_open_dprt != 0.0:
-        return today_open_dprt, f"당일 실측 개장 괴리율({today_open_dprt:+.2f}%)"
+        return today_open_dprt, f"당일 실측 개장 괴리율({today_open_dprt:+.2f}%)", None
 
     # ★ 룩어헤드 방지: 8시반 개장 전 예측이므로 '오늘'(및 미래) 캐시는 절대 쓰지 않는다.
     #   (오늘의 개장/종가 괴리율은 개장 후에야 알 수 있는 값)
@@ -469,7 +481,7 @@ def estimate_open_discount(kis_dprt, today_open_dprt=None):
 
     if len(open_samples) >= OPEN_DPRT_MIN_SAMPLES:
         avg = sum(open_samples) / len(open_samples)
-        return avg, f"전일까지 {len(open_samples)}영업일 측정 개장괴리 평균({avg:+.2f}%)"
+        return avg, f"전일까지 {len(open_samples)}영업일 측정 개장괴리 평균({avg:+.2f}%)", None
 
     # cold-start: 전일까지의 최근 종가 괴리율 × 비율 (오늘 제외)
     base_close_dprt = None
@@ -487,8 +499,10 @@ def estimate_open_discount(kis_dprt, today_open_dprt=None):
         base_close_dprt = kis_dprt
         src = "KIS dprt(전일 데이터 없음·첫 실행 폴백)"
 
-    est = base_close_dprt * OPEN_DPRT_RATIO
-    return est, f"{src} {base_close_dprt:+.2f}% × {OPEN_DPRT_RATIO}(개장/종가 비율) = {est:+.2f}%"
+    clipped = max(-OPEN_DPRT_CAP, min(OPEN_DPRT_CAP, base_close_dprt))
+    est = clipped * OPEN_DPRT_RATIO
+    clip_note = f" → 이상치 ±{OPEN_DPRT_CAP:.0f}% 클립 {clipped:+.2f}%" if clipped != base_close_dprt else ""
+    return est, f"{src} {base_close_dprt:+.2f}%{clip_note} × {OPEN_DPRT_RATIO}(개장/종가 비율) = {est:+.2f}%", base_close_dprt
 
 
 def get_etf_open_nav(token, retry=3):
@@ -1187,24 +1201,57 @@ def main():
         # 장중(live)엔 '오늘'의 실측 개장괴리가 곧 정답(같은 날 시가 예측). 장후(after)엔
         # 측정된 개장괴리는 '이미 지난 오늘'의 값이므로 익영업일 예측에 직접 쓰지 않고 캐시·cold-start로만 반영.
         live_open_dprt = measured_open_dprt if mode == "live" else None
-        open_discount, discount_basis = estimate_open_discount(kis_dprt, today_open_dprt=live_open_dprt)
+        open_discount, discount_basis, open_vol_signal = estimate_open_discount(kis_dprt, today_open_dprt=live_open_dprt)
         open_nav_track = predicted_nav * (1 + open_discount / 100)
         predicted_open = int(round(open_nav_track / 5) * 5)
         scenario_name = "동시호가 전·외 — 시장 예상체결가 없음(참고 추정: 예측NAV × 괴리율모델)"
         antc_ctrt = None
 
-    open_lower = int(round((open_nav_track - 25) / 5) * 5)
-    open_upper = int(round((open_nav_track + 25) / 5) * 5)
-
-    # 예상 괴리율 기반 한줄 의견 (저평가=할인 / 고평가=프리미엄)
-    if open_discount <= -3.0:
-        decision_msg = "예상 시가가 공정가치(예측 NAV) 대비 큰 폭으로 할인(저평가) 상태입니다 — 큰 폭 할인 출발."
-    elif open_discount <= -1.0:
-        decision_msg = "예상 시가가 공정가치(예측 NAV) 대비 할인(저평가) 상태입니다 — 다소 낮게(할인) 출발."
-    elif open_discount >= 1.0:
-        decision_msg = "예상 시가가 공정가치(예측 NAV) 대비 프리미엄(고평가) 상태입니다 — 다소 높게 출발."
+    # 정밀 범위 밴드.
+    #   antc 유효(시장 동시호가) 경로 → ±25원 고정 유지(시장이 만든 예상시가라 좁아도 됨).
+    #   폴백(antc 없음)이면 괴리율 모델 추정이라 불확실성이 크다 → 변동성에 따라 밴드 확대:
+    #     큰 이상치(|전일종가괴리|>5%) → 예측NAV×OPEN_BAND_VOL_RATIO(~±100원)
+    #     그 외 폴백               → 예측NAV×OPEN_BAND_FB_RATIO (~±60원)
+    #   ★ 변동성 신호 = 클리핑과 동일 기준(estimate_open_discount cold-start 가 쓴 '전일 종가괴리').
+    #     중심 예측의 클리핑·범위 확대를 같은 신호로 일관화해야 6/23처럼 종가괴리만 큰 날도 넓은 밴드로 잡는다.
+    #     신호가 None(캐시 평균·당일 실측 등 견고한 경로)이면 좁은 FB 밴드로 충분(룩어헤드 아님).
+    #   (3일 실측 백테스트: 폴백 범위 적중 0/3 → 3/3.)
+    if expected_open_valid:
+        open_band = 25.0
+    elif open_vol_signal is not None and abs(open_vol_signal) > OPEN_BAND_VOL_DPRT:
+        open_band = max(25.0, open_nav_track * OPEN_BAND_VOL_RATIO)
     else:
-        decision_msg = "예상 시가가 공정가치(예측 NAV) 부근(괴리 작음)에서 출발할 것으로 보입니다."
+        open_band = max(25.0, open_nav_track * OPEN_BAND_FB_RATIO)
+    open_lower = int(round((open_nav_track - open_band) / 5) * 5)
+    open_upper = int(round((open_nav_track + open_band) / 5) * 5)
+
+    # 한줄 의견 — 경로별로 의견 신호를 다르게 한다.
+    #   A) antc 유효: open_discount = (시장예상가−NAV)/NAV 라 '진짜 시장 신호'.
+    #      NAV 대비 저평가/고평가 4구간을 그대로 분류하고 '(시장 동시호가 기준)' 표기.
+    #   B) 폴백: open_discount 는 우리가 가정한 할인율(=clip(전일종가괴리)×비율)이라 자기참조적.
+    #      대신 공정가치(예측NAV)의 전일대비 변화 nav_change 로 의견을 만든다(간밤 기초자산·환율
+    #      반영한 펀더멘털 결과 → 자기참조 아님). 방향+강도 위주로 쓰고 '(시장 예상가 미확보·모델 추정)' 표기.
+    if expected_open_valid:
+        if open_discount <= -3.0:
+            decision_msg = "시장 예상가가 공정가치(예측 NAV) 대비 큰 폭 저평가 — 큰 폭 할인 출발 (시장 동시호가 기준)."
+        elif open_discount <= -1.0:
+            decision_msg = "시장 예상가가 공정가치(예측 NAV) 대비 저평가 — 다소 낮게(할인) 출발 (시장 동시호가 기준)."
+        elif open_discount >= 1.0:
+            decision_msg = "시장 예상가가 공정가치(예측 NAV) 대비 고평가 — 다소 높게(프리미엄) 출발 (시장 동시호가 기준)."
+        else:
+            decision_msg = "시장 예상가가 공정가치(예측 NAV) 부근(괴리 작음)에서 출발 전망 (시장 동시호가 기준)."
+    else:
+        nav_change = (predicted_nav - base_nav) / base_nav * 100 if base_nav else 0.0
+        if nav_change <= -3.0:
+            decision_msg = "간밤 기초자산·환율 약세로 공정가치가 전일보다 크게 낮아짐 → 큰 폭 하락 출발 전망 (시장 예상가 미확보·모델 추정)."
+        elif nav_change <= -1.0:
+            decision_msg = "간밤 기초자산·환율 영향으로 공정가치가 다소 낮아짐 → 약세 출발 전망 (시장 예상가 미확보·모델 추정)."
+        elif nav_change >= 3.0:
+            decision_msg = "간밤 기초자산·환율 강세로 공정가치가 전일보다 크게 높아짐 → 큰 폭 상승 출발 전망 (시장 예상가 미확보·모델 추정)."
+        elif nav_change >= 1.0:
+            decision_msg = "간밤 기초자산·환율 영향으로 공정가치가 다소 높아짐 → 강세 출발 전망 (시장 예상가 미확보·모델 추정)."
+        else:
+            decision_msg = "간밤 기초자산·환율 변동이 작아 공정가치가 전일과 비슷함 → 보합 출발 전망 (시장 예상가 미확보·모델 추정)."
 
     print("-" * 50)
     if expected_open_valid:
@@ -1221,7 +1268,7 @@ def main():
         print(f"  - 공정가치(예측 NAV)   : {predicted_nav:>8,.0f}원")
         print(f"  - 추정 개장할인율      : {open_discount:>+7.2f}%  (근거: {discount_basis})")
         print(f"  - 예상 기준가          : {open_nav_track:>8,.0f}원")
-        print(f"  - 정밀 범위            : {open_lower:>8,.0f}원 ~ {open_upper:>8,.0f}원 (±25원)")
+        print(f"  - 정밀 범위            : {open_lower:>8,.0f}원 ~ {open_upper:>8,.0f}원 (±{open_band:,.0f}원)")
 
     print("-" * 50)
     print(f"  [🎯 최종 시가 예측 요약]")
@@ -1280,7 +1327,7 @@ def main():
             f"📢 <b>[TIGER 미국우주테크 ETF 시가 예측]</b>\n\n"
             f"✨ 전일 종가({base_etf:,.0f}원) 대비 {price_diff_dir} {price_diff_sign}{price_diff:,.0f}원 ({price_diff_pct:+.2f}%)\n"
             f"🎯 <b>예상 시가 : <u>{predicted_open:,.0f}원</u></b>\n"
-            f"🔍 <b>범위 : <code>{open_lower:,.0f}원 ~ {open_upper:,.0f}원</code> (±25원)</b>\n\n"
+            f"🔍 <b>범위 : <code>{open_lower:,.0f}원 ~ {open_upper:,.0f}원</code> (±{open_band:,.0f}원)</b>\n\n"
             f"의견: {decision_msg}\n\n\n"
             f"🇺🇸 <b>주요 종목 종가 (등락률)</b>\n"
             f"{holdings_str}"
