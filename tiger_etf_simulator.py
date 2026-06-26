@@ -144,7 +144,7 @@ def market_status_line(kr_open, us_new_session, compact=False):
     kr = "정상 🟢" if kr_open else "휴장 🔴"
     us = "정상 🟢" if us_new_session else "휴장 🔴"
     if compact:
-        return f"🇰🇷 국내장 {kr}  ·  🇺🇸 미국장 {us}"
+        return f"🇰🇷 국내장 {kr}\n🇺🇸 미국장 {us}"
     return f"🇰🇷 국내장 : 금일 {kr}\n🇺🇸 미국장 : 전일 {us}"
 
 
@@ -1324,8 +1324,10 @@ def main():
         telegram_msg = (
             f"<b>[{date_header}]</b>\n"
             f"{status_header}\n"
-            f"📢 <b>[TIGER 미국우주테크 ETF 시가 예측]</b>\n\n"
-            f"✨ 전일 종가({base_etf:,.0f}원) 대비 {price_diff_dir} {price_diff_sign}{price_diff:,.0f}원 ({price_diff_pct:+.2f}%)\n"
+            f"📢 <b>[TIGER 미국우주테크]</b>\n"
+            f"<b>ETF 시가 예측</b>\n\n"
+            f"✨ 전일 종가({base_etf:,.0f}원) 대비\n"
+            f"{price_diff_dir} {price_diff_sign}{price_diff:,.0f}원 ({price_diff_pct:+.2f}%)\n"
             f"🎯 <b>예상 시가 : <u>{predicted_open:,.0f}원</u></b>\n"
             f"🔍 <b>범위 : <code>{open_lower:,.0f}원 ~ {open_upper:,.0f}원</code> (±{open_band:,.0f}원)</b>\n\n"
             f"의견: {decision_msg}\n\n\n"
